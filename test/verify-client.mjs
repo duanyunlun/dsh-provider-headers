@@ -263,7 +263,27 @@ const ctx = {
   },
 }
 
-loaded.apply(ctx)
+/** Services and core methods the browser half declares, and nothing else. */
+const DECLARED = new Set(['effect', 'locale', 'slots', 'remote'])
+
+/**
+ * Apply the Cordis context rule to the stand-in: a property the plugin never
+ * declared throws, so an undeclared read fails here instead of at boot.
+ * @param target - the permissive stand-in.
+ * @returns the same object behind the rule.
+ */
+function strict(target) {
+  return new Proxy(target, {
+    get(object, prop) {
+      if (typeof prop === 'string' && !DECLARED.has(prop)) {
+        throw new Error(`cannot get property "${prop}" without inject`)
+      }
+      return object[prop]
+    },
+  })
+}
+
+loaded.apply(strict(ctx))
 
 assert.equal(registrations.length, 1, 'apply registers exactly one contribution')
 assert.equal(registrations[0].options.name, 'settings.models.provider-card')
@@ -344,11 +364,17 @@ assert.deepEqual(calls.mutate[1].ops, [{ op: 'unset', path: ['providers', 'openc
     },
     remote: { settings: { describe: async () => ({ ok: true, value: { writable: true, namespaces: [] } }) } },
   }
-  loadBundle().apply(bare)
+  loadBundle().apply(strict(bare))
   assert.equal(other.length, 1)
   const empty = mount(other[0].component, { ...ownerProps, ...other[0].options.inject() })
   await flush()
   assert.match(empty.text(), /Request headers are unavailable/, 'a missing namespace degrades to a message')
 }
 
-console.log('dsh-provider-headers: 5 browser-half checks passed')
+// 6. The rule the stand-in enforces is the rule that broke 0.1.0: reading a
+//    name the plugin never declared fails at boot.
+{
+  assert.throws(() => strict(ctx).config, /cannot get property "config" without inject/)
+}
+
+console.log('dsh-provider-headers: 6 browser-half checks passed')

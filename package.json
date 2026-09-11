@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-headers",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Per-provider request headers in the DeepSeek Harness Models settings page, with per-conversation ${sessionId} expansion.",
   "keywords": [
     "dsh",
@@ -36,7 +36,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/verify.mjs && node test/verify-client.mjs"
+    "test": "node test/verify.mjs && node test/verify-client.mjs",
+    "test:load": "node test/load.mjs"
   },
   "dsh": {
     "bundle": {
@@ -53,6 +54,9 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

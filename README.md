@@ -116,13 +116,17 @@ Harness 无法自己展开它：一个提供方 profile 按路由解析一次，
 ## 开发与验证
 
 ```sh
-npm test
+npm test              # 两组检查，零依赖，不碰 dsh 运行时
+npm run test:load     # 真 Cordis 加载检查（需 @deepseek-ai/cordis）
 ```
 
-两组检查都不依赖 dsh 运行时：
+- `test/verify.mjs` —— 宿主半：假 ctx + 记录型 `fetch`，验证展开确实到达线上请求、并发会话互不串号、保留名不被附加、作用域外的请求不受影响、卸载能还原 `fetch`。ctx 是**严格代理**，读没声明的属性就抛错，与 Cordis 一致。
+- `test/verify-client.mjs` —— 浏览器半：把 `client.js` 当作页面模块队列里的产物加载，用极小的 React 桩驱动组件，验证注册的槽位与 key、以及写出的 path op 恰好落在 `providers.<路由>.headers` 上并按 revision 加锁。
+- `test/load.mjs` —— 用**真的 Cordis** 加载宿主半并断言 fiber 到达 ACTIVE。这是唯一能覆盖 Cordis 上下文代理的检查；它同时会加载一个故意写坏的孪生插件并要求它 FAILED，否则这个检查全绿也没有意义。
 
-- `test/verify.mjs` —— 宿主半：假 ctx + 记录型 `fetch`，验证展开确实到达了线上请求、并发会话互不串号、保留名不被附加、作用域外的请求不受影响、以及卸载能还原 `fetch`。
-- `test/verify-client.mjs` —— 浏览器半：把 `client.js` 当作页面模块队列里的产物加载，用一个极小的 React 桩驱动组件，验证注册的槽位与 key、以及写出的 path op 恰好落在 `providers.<路由>.headers` 上并按 revision 加锁。
+### 为什么需要第三项
+
+0.1.0 用 `ctx.config` 读配置，而 Cordis 把配置作为 **`apply` 的第二个参数**传入。读未声明的属性会让 `apply` 抛错，进而**整棵插件树加载失败**（DSH 是 fail-loud 设计）。前两项检查的 ctx 是普通对象，拦不住这类错误；`test/load.mjs` 能——这正是 0.1.1 修掉的那个 bug。
 
 ## 许可证
 

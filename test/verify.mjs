@@ -2,10 +2,15 @@
  * Behaviour check for the host half: a configured `${sessionId}` header must
  * reach the wire for the calling conversation, and nothing else may change.
  *
+ * The context stand-in is a strict proxy: reading a property the plugin did
+ * not declare throws, the way Cordis's own context proxy does. A permissive
+ * plain object would accept `ctx.config`, which the Loader never exposes —
+ * configuration arrives as `apply`'s second argument.
+ *
  * Run with `node test/verify.mjs`.
  */
 import assert from 'node:assert/strict'
-import { apply } from '../index.js'
+import { apply as applyPlugin } from '../index.js'
 
 /** Requests the wrapper let through, in order. */
 const sent = []
@@ -19,30 +24,50 @@ const recorder = async (input, init) => {
 globalThis.fetch = recorder
 
 /**
+ * Wrap a service store in the Cordis context proxy rule: a name reaches the
+ * store only through `inject`, and anything else throws.
+ * @param get - resolves one service name.
+ * @param methods - the core context methods this slice of the plugin uses.
+ * @returns the proxied context.
+ */
+function contextProxy(get, methods) {
+  return new Proxy({}, {
+    get(_target, prop) {
+      if (typeof prop === 'string' && prop in methods) return methods[prop]
+      const value = get(prop)
+      if (value !== undefined) return value
+      throw new Error(`cannot get property "${String(prop)}" without inject`)
+    },
+  })
+}
+
+/**
  * Build the slice of Cordis context `apply` uses.
- * @param config - plugin config as the Loader would pass it.
+ * @param config - the entry configuration the Loader would pass.
  * @param section - the resolved `llm-pi-ai` settings section.
- * @returns the context plus the listeners it registered.
+ * @returns the context, its config, and the listeners it registered.
  */
 function makeContext(config, section) {
   const listeners = []
   const disposers = []
-  return {
-    listeners,
-    disposers,
-    ctx: {
-      config,
-      inject(names, callback) {
-        callback({ settings: { get: namespace => (namespace === 'llm-pi-ai' ? section : undefined) } })
-      },
-      effect(callback) {
-        disposers.push(callback())
-      },
-      on(name, listener, options) {
-        listeners.push({ name, listener, options })
-      },
-    },
+  const services = {
+    settings: { get: namespace => (namespace === 'llm-pi-ai' ? section : undefined) },
   }
+  const ctx = contextProxy(name => services[name], {
+    inject(names, callback) {
+      for (const name of names) {
+        assert.ok(name in services, `inject("${name}") names a service the check provides`)
+      }
+      callback(contextProxy(name => services[name], {}))
+    },
+    effect(callback) {
+      disposers.push(callback())
+    },
+    on(name, listener, options) {
+      listeners.push({ name, listener, options })
+    },
+  })
+  return { ctx, config, listeners, disposers }
 }
 
 /**
@@ -66,6 +91,18 @@ async function streamOnce(listeners, options) {
   return chunks
 }
 
+/**
+ * Mount the plugin against one configuration and section.
+ * @param config - the entry configuration.
+ * @param section - the resolved `llm-pi-ai` settings section.
+ * @returns the registered listeners and the effect disposers.
+ */
+function mount(config, section) {
+  const built = makeContext(config, section)
+  applyPlugin(built.ctx, built.config)
+  return built
+}
+
 const section = {
   providers: {
     'opencode-go': {
@@ -82,8 +119,7 @@ const section = {
 // 1. A configured placeholder reaches the wire, expanded, beside the caller's
 //    own headers; the Harness-owned name is left alone.
 {
-  const { ctx, listeners } = makeContext({}, section)
-  apply(ctx)
+  const { listeners } = mount({}, section)
   const chunks = await streamOnce(listeners, { provider: 'opencode-go', model: 'm', sessionId: 'session-abc' })
   assert.deepEqual(chunks, [{ type: 'text', text: 'hi' }], 'chunks pass through unchanged')
   assert.equal(sent.length, 1)
@@ -93,11 +129,18 @@ const section = {
   assert.equal(sent[0].headers.get('x-static'), null, 'constant headers stay on the Harness path')
 }
 
+// 1b. The Loader may hand a row no configuration at all.
+{
+  sent.length = 0
+  const { listeners } = mount(undefined, section)
+  await streamOnce(listeners, { provider: 'opencode-go', model: 'm', sessionId: 'session-abc' })
+  assert.equal(sent[0].headers.get('x-opencode-session'), 'session-abc', 'an absent config still expands')
+}
+
 // 2. Two conversations on one route carry their own ids.
 {
   sent.length = 0
-  const { ctx, listeners } = makeContext({}, section)
-  apply(ctx)
+  const { listeners } = mount({}, section)
   await Promise.all([
     streamOnce(listeners, { provider: 'opencode-go', model: 'm', sessionId: 'session-one' }),
     streamOnce(listeners, { provider: 'opencode-go', model: 'm', sessionId: 'session-two' }),
@@ -109,8 +152,7 @@ const section = {
 // 3. A route with no placeholder leaves the request byte-identical.
 {
   sent.length = 0
-  const { ctx, listeners } = makeContext({}, section)
-  apply(ctx)
+  const { listeners } = mount({}, section)
   await streamOnce(listeners, { provider: 'plain', model: 'm', sessionId: 'session-abc' })
   assert.equal(sent[0].headers.get('x-static'), null)
   assert.equal(sent[0].headers.get('x-opencode-session'), null)
@@ -119,8 +161,7 @@ const section = {
 // 4. A call with no session id, and any call outside the scope, is untouched.
 {
   sent.length = 0
-  const { ctx, listeners } = makeContext({}, section)
-  apply(ctx)
+  const { listeners } = mount({}, section)
   await streamOnce(listeners, { provider: 'opencode-go', model: 'm' })
   assert.equal(sent[0].headers.get('x-opencode-session'), null)
   await globalThis.fetch('https://example.test/unrelated')
@@ -130,8 +171,7 @@ const section = {
 // 5. The host allowlist narrows the wrapper when configured.
 {
   sent.length = 0
-  const { ctx, listeners } = makeContext({ hosts: ['opencode.ai'] }, section)
-  apply(ctx)
+  const { listeners } = mount({ hosts: ['opencode.ai'] }, section)
   await streamOnce(listeners, { provider: 'opencode-go', model: 'm', sessionId: 'session-abc' })
   assert.equal(sent[0].headers.get('x-opencode-session'), 'session-abc')
 }
@@ -139,8 +179,7 @@ const section = {
 // 6. `dynamic: false` installs nothing at all.
 {
   sent.length = 0
-  const { ctx, listeners } = makeContext({ dynamic: false }, section)
-  apply(ctx)
+  const { listeners } = mount({ dynamic: false }, section)
   assert.equal(listeners.length, 0, 'no listener registered')
   await globalThis.fetch('https://opencode.ai/v1/chat/completions')
   assert.equal(sent[0].headers.get('x-opencode-session'), null)
@@ -149,8 +188,7 @@ const section = {
 // 7. Disposal restores the `fetch` this plugin replaced, whatever it was.
 {
   const before = globalThis.fetch
-  const { ctx, disposers } = makeContext({}, section)
-  apply(ctx)
+  const { disposers } = mount({}, section)
   assert.notEqual(globalThis.fetch, before, 'the wrapper is installed')
   for (const dispose of disposers) dispose()
   assert.equal(globalThis.fetch, before, 'disposal restores the previous fetch')
@@ -159,8 +197,7 @@ const section = {
 
 // 7b. A later wrapper from elsewhere is never clobbered by this one's disposal.
 {
-  const { ctx, disposers } = makeContext({}, section)
-  apply(ctx)
+  const { disposers } = mount({}, section)
   const later = globalThis.fetch
   globalThis.fetch = recorder
   for (const dispose of disposers) dispose()
@@ -172,10 +209,16 @@ const section = {
 // 8. A malformed section degrades to sending nothing rather than failing a call.
 {
   sent.length = 0
-  const { ctx, listeners } = makeContext({}, { providers: { 'opencode-go': { headers: 'not-an-object' } } })
-  apply(ctx)
+  const { listeners } = mount({}, { providers: { 'opencode-go': { headers: 'not-an-object' } } })
   await streamOnce(listeners, { provider: 'opencode-go', model: 'm', sessionId: 'session-abc' })
   assert.equal(sent[0].headers.get('x-opencode-session'), null)
 }
 
-console.log('dsh-provider-headers: 8 host-half checks passed')
+// 9. Reading a service the plugin never declared fails, the way Cordis fails:
+//    a stray `ctx.config` is exactly this, and it is what broke 0.1.0.
+{
+  const built = makeContext({}, section)
+  assert.throws(() => built.ctx.config, /cannot get property "config" without inject/)
+}
+
+console.log('dsh-provider-headers: 10 host-half checks passed')

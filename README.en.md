@@ -95,13 +95,17 @@ Only headers whose configured value contains the placeholder take this path.
 ## Development
 
 ```sh
-npm test
+npm test              # two checks, no dependencies, no dsh runtime
+npm run test:load     # real-Cordis load check (needs @deepseek-ai/cordis)
 ```
 
-Neither check needs a dsh runtime:
-
-- `test/verify.mjs` — host half: a fake context plus a recording `fetch`, asserting the expansion reaches the wire, concurrent conversations keep separate ids, reserved names are never attached, unscoped requests are untouched, and disposal restores `fetch`.
+- `test/verify.mjs` — host half: a fake context plus a recording `fetch`, asserting the expansion reaches the wire, concurrent conversations keep separate ids, reserved names are never attached, unscoped requests are untouched, and disposal restores `fetch`. The context stand-in is a strict proxy: reading an undeclared property throws, the way Cordis's own proxy does.
 - `test/verify-client.mjs` — browser half: loads `client.js` the way the page's module queue does, drives the component through a minimal React stub, and asserts the registered seat and key plus the exact path operation written to `providers.<route>.headers`, fenced on revision.
+- `test/load.mjs` — loads the host half into **real Cordis** and asserts the fiber reaches ACTIVE. It is the only check that covers Cordis's context proxy, and it also loads a deliberately broken twin and requires that one to fail — without which a green result would mean nothing.
+
+### Why the third check exists
+
+0.1.0 read configuration from `ctx.config`, but Cordis passes configuration as **`apply`'s second argument**. Reading an undeclared property throws inside `apply`, which fails the entire plugin tree — DSH is fail-loud by design. The first two checks use a plain object and cannot see that class of defect; `test/load.mjs` can. It is the bug 0.1.1 fixes.
 
 ## License
 

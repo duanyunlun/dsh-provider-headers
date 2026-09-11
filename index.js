@@ -154,11 +154,12 @@ export const inject = ['settings']
  * Install the scope-aware `fetch` wrapper and the `llm/stream` listener that
  * fills the scope.
  * @param ctx - the plugin's Cordis context.
+ * @param config - this entry's configuration, passed by the Loader.
  */
-export function apply(ctx) {
-  const dynamic = ctx.config?.dynamic !== false
+export function apply(ctx, config) {
+  const dynamic = config?.dynamic !== false
   if (!dynamic) return
-  const hosts = Array.isArray(ctx.config?.hosts) ? ctx.config.hosts.filter(host => typeof host === 'string') : []
+  const hosts = Array.isArray(config?.hosts) ? config.hosts.filter(host => typeof host === 'string') : []
 
   ctx.inject(['settings'], settingsCtx => {
     const settings = settingsCtx.settings
