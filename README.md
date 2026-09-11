@@ -121,12 +121,16 @@ npm run test:load     # 真 Cordis 加载检查（需 @deepseek-ai/cordis）
 ```
 
 - `test/verify.mjs` —— 宿主半：假 ctx + 记录型 `fetch`，验证展开确实到达线上请求、并发会话互不串号、保留名不被附加、作用域外的请求不受影响、卸载能还原 `fetch`。ctx 是**严格代理**，读没声明的属性就抛错，与 Cordis 一致。
-- `test/verify-client.mjs` —— 浏览器半：把 `client.js` 当作页面模块队列里的产物加载，用极小的 React 桩驱动组件，验证注册的槽位与 key、以及写出的 path op 恰好落在 `providers.<路由>.headers` 上并按 revision 加锁。
-- `test/load.mjs` —— 用**真的 Cordis** 加载宿主半并断言 fiber 到达 ACTIVE。这是唯一能覆盖 Cordis 上下文代理的检查；它同时会加载一个故意写坏的孪生插件并要求它 FAILED，否则这个检查全绿也没有意义。
+- `test/verify-client.mjs` —— 浏览器半：把 `client.js` 当作页面模块队列里的产物加载，用极小的 React 桩驱动组件，验证注册的槽位与 key、以及写出的 path op 恰好落在 `providers.<路由>.headers` 上并按 revision 加锁。ctx 同样是严格代理，且允许列表**从插件导出的 `inject` 推导**。
+- `test/load.mjs` —— 用**真的 Cordis** 加载宿主半并断言 fiber 到达 ACTIVE。它同时会加载一个故意写坏的孪生插件并要求它 FAILED，否则这个检查全绿也没有意义。
 
-### 为什么需要第三项
+### 两个已经踩过的坑，以及现在的检查为什么能挡住
 
-0.1.0 用 `ctx.config` 读配置，而 Cordis 把配置作为 **`apply` 的第二个参数**传入。读未声明的属性会让 `apply` 抛错，进而**整棵插件树加载失败**（DSH 是 fail-loud 设计）。前两项检查的 ctx 是普通对象，拦不住这类错误；`test/load.mjs` 能——这正是 0.1.1 修掉的那个 bug。
+**一、配置从哪来。** 0.1.0 用 `ctx.config` 读配置，而 Cordis 把配置作为 **`apply` 的第二个参数**传入。读未声明的属性会让 `apply` 抛错，进而**整棵插件树加载失败**（DSH 是 fail-loud 设计）。只有 `test/load.mjs`（真 Cordis）挡得住这类错误。
+
+**二、点号 inject 不等于服务本身。** 0.1.1 声明的是 `inject: ['slots', 'remote.settings', 'locale']`，却访问 `ctx.remote.settings`。声明 `remote.settings` 只表示"等那个命名空间挂载"，**不表示允许读 `ctx.remote`**——这是两件事，必须两个都声明。结果插件加载正常，但每次读设置都抛 `cannot get property "remote" without inject`，编辑器渲染成一条错误。
+
+第二个坑没被拦住，是因为当时的测试**手写**了允许列表，而我把 `remote` 也写了进去。现在允许列表**从插件自己导出的 `inject` 推导**（只取不含点号的根名，加上核实过存在于 Cordis `Context` 上的核心方法），手写清单再也无法掩盖"声明"与"访问"的错配。
 
 ## 许可证
 

@@ -186,7 +186,13 @@ function loadBundle() {
 // ---------------------------------------------------------------------------
 
 const loaded = loadBundle()
-assert.deepEqual(loaded.inject, ['slots', 'remote.settings', 'locale'], 'the browser half declares its services')
+assert.deepEqual(loaded.inject, ['slots', 'remote', 'remote.settings', 'locale'],
+  'the browser half declares its services')
+// The plugin reads `ctx.remote.settings`, which needs BOTH names: the dotted
+// entry waits for the namespace, the bare one lets the property proxy answer.
+// 0.1.1 declared only the dotted name and the whole editor failed to render.
+assert.ok(loaded.inject.includes('remote') && loaded.inject.includes('remote.settings'),
+  'a dotted inject entry never substitutes for the service it hangs off')
 
 const dictionaries = {}
 const translations = { zh: {}, en: {} }
@@ -263,19 +269,29 @@ const ctx = {
   },
 }
 
-/** Services and core methods the browser half declares, and nothing else. */
-const DECLARED = new Set(['effect', 'locale', 'slots', 'remote'])
+/** Core Context methods, verified present on a bare Cordis context. */
+const CORE_METHODS = ['get', 'inject', 'effect', 'on']
 
 /**
  * Apply the Cordis context rule to the stand-in: a property the plugin never
  * declared throws, so an undeclared read fails here instead of at boot.
+ *
+ * The allowlist is DERIVED from the plugin's own `inject`, never hand-written.
+ * A hand-written list is how 0.1.1 shipped `ctx.remote` while declaring only
+ * `remote.settings`: a dotted entry declares a dependency on that namespace,
+ * not permission to read the service, and only an allowlist built from the
+ * declaration can keep those two apart.
  * @param target - the permissive stand-in.
  * @returns the same object behind the rule.
  */
 function strict(target) {
+  const allowed = new Set([
+    ...CORE_METHODS,
+    ...loaded.inject.filter(entry => !entry.includes('.')),
+  ])
   return new Proxy(target, {
     get(object, prop) {
-      if (typeof prop === 'string' && !DECLARED.has(prop)) {
+      if (typeof prop === 'string' && !allowed.has(prop)) {
         throw new Error(`cannot get property "${prop}" without inject`)
       }
       return object[prop]
@@ -286,8 +302,9 @@ function strict(target) {
 loaded.apply(strict(ctx))
 
 assert.equal(registrations.length, 1, 'apply registers exactly one contribution')
-assert.equal(registrations[0].options.name, 'settings.models.provider-card')
-assert.equal(registrations[0].options.key, 'llm-pi-ai', 'the key is the pi-ai settings namespace')
+const card = registrations[0]
+assert.equal(card.options.name, 'settings.models.provider-card')
+assert.equal(card.options.key, 'llm-pi-ai', 'the key is the pi-ai settings namespace')
 assert.ok(dictionaries['dsh.modelHeaders'] !== undefined, 'the copy dictionary is registered')
 
 const ownerProps = {
@@ -302,7 +319,7 @@ const ownerProps = {
   keyConfigured: true,
 }
 
-const view = mount(registrations[0].component, { ...ownerProps, ...registrations[0].options.inject() })
+const view = mount(card.component, { ...ownerProps, ...card.options.inject() })
 await flush()
 
 /** Re-query the live tree: a save replaces the rows, so held elements go stale. */

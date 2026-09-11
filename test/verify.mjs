@@ -54,11 +54,15 @@ function makeContext(config, section) {
     settings: { get: namespace => (namespace === 'llm-pi-ai' ? section : undefined) },
   }
   const ctx = contextProxy(name => services[name], {
+    // `ctx.get` is a core Context method for optional lookups, and it returns
+    // undefined for an unknown name rather than throwing — the plugin relies on
+    // that when it probes for `clientModules`.
+    get: name => services[name],
     inject(names, callback) {
       for (const name of names) {
         assert.ok(name in services, `inject("${name}") names a service the check provides`)
       }
-      callback(contextProxy(name => services[name], {}))
+      callback(contextProxy(name => services[name], { get: name => services[name] }))
     },
     effect(callback) {
       disposers.push(callback())

@@ -101,11 +101,15 @@ npm run test:load     # real-Cordis load check (needs @deepseek-ai/cordis)
 
 - `test/verify.mjs` — host half: a fake context plus a recording `fetch`, asserting the expansion reaches the wire, concurrent conversations keep separate ids, reserved names are never attached, unscoped requests are untouched, and disposal restores `fetch`. The context stand-in is a strict proxy: reading an undeclared property throws, the way Cordis's own proxy does.
 - `test/verify-client.mjs` — browser half: loads `client.js` the way the page's module queue does, drives the component through a minimal React stub, and asserts the registered seat and key plus the exact path operation written to `providers.<route>.headers`, fenced on revision.
-- `test/load.mjs` — loads the host half into **real Cordis** and asserts the fiber reaches ACTIVE. It is the only check that covers Cordis's context proxy, and it also loads a deliberately broken twin and requires that one to fail — without which a green result would mean nothing.
+- `test/load.mjs` — loads the host half into **real Cordis** and asserts the fiber reaches ACTIVE. It also loads a deliberately broken twin and requires that one to fail — without which a green result would mean nothing.
 
-### Why the third check exists
+### Two defects already shipped, and why the checks now catch them
 
-0.1.0 read configuration from `ctx.config`, but Cordis passes configuration as **`apply`'s second argument**. Reading an undeclared property throws inside `apply`, which fails the entire plugin tree — DSH is fail-loud by design. The first two checks use a plain object and cannot see that class of defect; `test/load.mjs` can. It is the bug 0.1.1 fixes.
+**Configuration has an argument, not a property.** 0.1.0 read `ctx.config`, but Cordis passes configuration as **`apply`'s second argument**. Reading the undeclared property throws inside `apply`, which fails the entire plugin tree — DSH is fail-loud by design. Only `test/load.mjs` (real Cordis) sees that class of defect.
+
+**A dotted inject entry is not the service.** 0.1.1 declared `inject: ['slots', 'remote.settings', 'locale']` while reading `ctx.remote.settings`. Declaring `remote.settings` waits for that namespace; it does **not** permit reading `ctx.remote`. The plugin activated, then every read threw `cannot get property "remote" without inject` and the editor rendered as one error line.
+
+That second defect survived because the check **hand-wrote** its allowlist and that list happened to contain `remote`. Both browser-half checks now **derive** the allowlist from the plugin's own exported `inject` — root segments only, plus the core methods verified present on a Cordis `Context` — so a hand-written list can no longer hide a mismatch between what the plugin declares and what it reads.
 
 ## License
 

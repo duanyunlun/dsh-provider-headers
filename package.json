@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-headers",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Per-provider request headers in the DeepSeek Harness Models settings page, with per-conversation ${sessionId} expansion.",
   "keywords": [
     "dsh",

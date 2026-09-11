@@ -42,6 +42,7 @@ window.__ModuleLoader__.load({
 			sessionHint: `In a value, ${PLACEHOLDER} becomes the current conversation id.`,
 			reservedHint: 'user-agent is sent by the Harness and cannot be replaced here.',
 			empty: 'No custom request headers.',
+			loading: 'Reading the settings document…',
 			summary: count => `Request headers (${count})`,
 			nameLabel: 'Header name',
 			valueLabel: 'Value',
@@ -63,6 +64,7 @@ window.__ModuleLoader__.load({
 			sessionHint: `值中的 ${PLACEHOLDER} 会替换为当前会话 ID。`,
 			reservedHint: 'user-agent 由 Harness 发送，此处无法替换。',
 			empty: '暂无自定义请求头。',
+			loading: '正在读取设置文档…',
 			summary: count => `自定义请求头（${count}）`,
 			nameLabel: '请求头名称',
 			valueLabel: '值',
@@ -259,7 +261,16 @@ window.__ModuleLoader__.load({
 			const [unavailable, setUnavailable] = React.useState(undefined)
 
 			const load = React.useCallback(async () => {
-				const answer = await props.read()
+				let answer
+				try {
+					answer = await props.read()
+				} catch (error) {
+					// A rejected Remote call is not an answer: surface it rather
+					// than leaving the fold blank forever.
+					setRows([])
+					setUnavailable(String(error?.message ?? error))
+					return
+				}
 				if (!answer.ok) {
 					setRows([])
 					setUnavailable(answer.message)
@@ -305,7 +316,14 @@ window.__ModuleLoader__.load({
 				const ops = Object.keys(next).length === 0
 					? [{ op: 'unset', path: [...path, 'headers'] }]
 					: [{ op: 'set', path: [...path, 'headers'], value: next }]
-				const answer = await props.write(ops, revision)
+				let answer
+				try {
+					answer = await props.write(ops, revision)
+				} catch (error) {
+					setBusy(false)
+					setProblem(String(error?.message ?? error))
+					return
+				}
 				setBusy(false)
 				if (!answer.ok) {
 					setProblem(answer.conflict ? t('conflict') : answer.message)
@@ -318,7 +336,11 @@ window.__ModuleLoader__.load({
 				setNotice(t('saved'))
 			}
 
-			if (rows === null) return null
+			// Never render nothing: an unanswered read must stay visible, or a
+			// broken read path is indistinguishable from an unregistered plugin.
+			if (rows === null) {
+				return h('div', { style: styles.block }, h('p', { style: styles.hint }, t('loading')))
+			}
 
 			if (unavailable !== undefined) {
 				return h('div', { style: styles.block }, h('p', { style: styles.error, role: 'alert' }, unavailable))
@@ -411,8 +433,13 @@ window.__ModuleLoader__.load({
 			])
 		}
 
-		/** Services this plugin's browser half reads. */
-		const inject = ['slots', 'remote.settings', 'locale']
+		/**
+		 * Services this plugin's browser half reads. Both `remote` and
+		 * `remote.settings` are required: the dotted name declares a dependency
+		 * on that namespace, while reading `ctx.remote` at all needs the service
+		 * itself declared.
+		 */
+		const inject = ['slots', 'remote', 'remote.settings', 'locale']
 
 		/**
 		 * Register the locale dictionaries and the provider-card editor.
@@ -450,6 +477,7 @@ window.__ModuleLoader__.load({
 				locale: COPY_NS,
 				inject: () => api,
 			}, HeadersCard))
+
 		}
 
 		exports.apply = apply
