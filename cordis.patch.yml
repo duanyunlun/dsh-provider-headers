@@ -1,0 +1,6 @@
+# dsh-provider-headers: per-provider request headers for the Models settings page.
+# The host half mounts here; the browser half is discovered through the
+# package.json dsh.client declaration (no separate Loader row).
+- insert:
+    - id: model-headers
+      name: 'dsh-provider-headers'

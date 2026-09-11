@@ -1,0 +1,61 @@
+{
+  "name": "dsh-provider-headers",
+  "version": "0.1.0",
+  "description": "Per-provider request headers in the DeepSeek Harness Models settings page, with per-conversation ${sessionId} expansion.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek-harness-plugin",
+    "request-headers",
+    "provider-headers",
+    "opencode",
+    "x-opencode-session"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duanyunlun/dsh-provider-headers.git"
+  },
+  "homepage": "https://github.com/duanyunlun/dsh-provider-headers#readme",
+  "bugs": {
+    "url": "https://github.com/duanyunlun/dsh-provider-headers/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/verify.mjs && node test/verify-client.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings-models",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "license": "MIT"
+}
